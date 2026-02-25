@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target
+Cargo.lock
+
+# Debug and incremental compilation artifacts
+**/*.rs.bk
+*.pdb
+
+# Profile directories with sensitive tokens
+.claude-*/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Backup files
+*.bak
+*.backup
