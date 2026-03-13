@@ -9,14 +9,11 @@ pub struct Profile {
 
 impl Profile {
     pub fn new(account: &str) -> Result<Self, String> {
-        let home_dir = env::var("HOME")
-            .map_err(|_| "❌ Error: HOME environment variable not set.".to_string())?;
+        let home_dir = dirs::home_dir()
+            .ok_or_else(|| "❌ Error: Could not determine home directory.".to_string())?;
 
-        let mut config_dir = PathBuf::from(&home_dir);
-        config_dir.push(format!(".claude-{}", account));
-
-        let mut token_file = config_dir.clone();
-        token_file.push("keychain_token.txt");
+        let config_dir = home_dir.join(format!(".claude-{}", account));
+        let token_file = config_dir.join("keychain_token.txt");
 
         Ok(Self {
             name: account.to_string(),
