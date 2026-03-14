@@ -1,4 +1,3 @@
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 
@@ -24,9 +23,8 @@ pub fn write_token_file(path: &PathBuf, token: &str) -> Result<(), String> {
 
 /// Scans the home directory for ~/.claude-* profile directories and returns profile names.
 pub fn discover_profile_names() -> Result<Vec<String>, String> {
-    let home_dir = env::var("HOME")
-        .map_err(|_| "HOME environment variable not set".to_string())?;
-    let home = PathBuf::from(home_dir);
+    let home = dirs::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_string())?;
 
     let entries = fs::read_dir(&home)
         .map_err(|e| format!("Failed to read home directory: {}", e))?;

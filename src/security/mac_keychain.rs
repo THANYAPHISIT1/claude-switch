@@ -1,18 +1,29 @@
 use std::env;
+use std::path::Path;
 use std::process::Command;
+
+use sha2::{Digest, Sha256};
 
 use crate::security::token::Profile;
 
-const KEYCHAIN_SERVICE: &str = "claude-code";
+/// Computes the keychain service name Claude Code uses for a given config directory.
+/// Formula: "Claude Code-credentials-" + sha256(config_dir_path)[0..8].
+/// NOTE: This formula can change in the future if Claude Code changes their keychain naming.
+fn keychain_service(config_dir: &Path) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(config_dir.to_string_lossy().as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    format!("Claude Code-credentials-{}", &hash[..8])
+}
 
 /// Restores the saved token into the macOS keychain before launching Claude.
 /// Returns `Ok(true)` if a token was restored, `Ok(false)` on first run (clears stale session).
 pub fn restore(profile: &Profile) -> Result<bool, String> {
+    let service = keychain_service(&profile.config_dir);
+
     if !profile.token_file.exists() {
-        // First run: clear stale keychain entry to force Claude to request a new login
-        let _ = Command::new("security")
-            .args(["delete-generic-password", "-s", KEYCHAIN_SERVICE])
-            .output();
+        // First run: no saved token yet — let Claude use existing session or prompt login.
+        // Each profile has its own keychain entry (via SHA256), so no need to clear anything.
         return Ok(false);
     }
 
@@ -22,7 +33,7 @@ pub fn restore(profile: &Profile) -> Result<bool, String> {
 
     // Delete old entry first to prevent duplicate data error
     let _ = Command::new("security")
-        .args(["delete-generic-password", "-s", KEYCHAIN_SERVICE])
+        .args(["delete-generic-password", "-s", &service])
         .output();
 
     let user = env::var("USER").unwrap_or_default();
@@ -32,7 +43,7 @@ pub fn restore(profile: &Profile) -> Result<bool, String> {
             "-a",
             &user,
             "-s",
-            KEYCHAIN_SERVICE,
+            &service,
             "-w",
             saved_token,
         ])
@@ -45,8 +56,10 @@ pub fn restore(profile: &Profile) -> Result<bool, String> {
 /// Backs up the current keychain token to file after Claude exits.
 /// Returns `Ok(true)` if backed up, `Ok(false)` if keychain is empty (silent — normal after logout).
 pub fn backup(profile: &Profile) -> Result<bool, String> {
+    let service = keychain_service(&profile.config_dir);
+
     let find_output = Command::new("security")
-        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"])
+        .args(["find-generic-password", "-s", &service, "-w"])
         .output()
         .map_err(|e| format!("Failed to read from keychain: {}", e))?;
 
