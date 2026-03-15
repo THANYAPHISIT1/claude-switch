@@ -119,20 +119,144 @@ fn handle_manage(profiles: &[String]) -> Result<(), String> {
 fn manage_single_profile(name: &str) -> Result<(), String> {
     let profile = Profile::new(name)?;
 
-    let items = ["  🗑  Delete profile", "  📂  Reveal in Finder", "  ← Back"];
+    let items = [
+        "  🗑  Delete profile",
+        "  📂  Reveal in Finder",
+        "  🔗  Set alias",
+        "  ✂️   Remove alias",
+        "  ← Back",
+    ];
 
     let selection = Select::with_theme(&ColorfulTheme::default())
         .with_prompt(format!("⚙  Manage: {}", name))
         .items(&items)
-        .default(2)
+        .default(4)
         .interact_on_opt(&Term::stderr())
         .map_err(|e| e.to_string())?;
 
     match selection {
         Some(0) => delete_profile(&profile, name)?,
         Some(1) => reveal_in_finder(&profile)?,
+        Some(2) => set_alias(name)?,
+        Some(3) => remove_alias(name)?,
         _ => {}
     }
+
+    Ok(())
+}
+
+fn set_alias(profile_name: &str) -> Result<(), String> {
+    let default_alias = format!("cs{}", profile_name);
+
+    let alias_name: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Alias name (must start with 'cs')")
+        .default(default_alias)
+        .validate_with(|input: &String| -> Result<(), String> {
+            if input.starts_with("cs") && input.len() > 2 {
+                Ok(())
+            } else {
+                Err("Alias must start with 'cs' and have at least one character after (e.g., cswork)".to_string())
+            }
+        })
+        .interact_text()
+        .map_err(|e| e.to_string())?;
+
+    let zshrc = dirs::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_string())?
+        .join(".zshrc");
+
+    let alias_line = format!("alias {}='claude-switch --{}'", alias_name, profile_name);
+    let fast_line = format!(
+        "alias {}-fast='claude-switch --{} --dangerously-skip-permissions'",
+        alias_name, profile_name
+    );
+    let block = format!("\n# claude-switch: {} profile\n{}\n{}\n", profile_name, alias_line, fast_line);
+
+    // Check for existing alias block and ask to overwrite
+    let existing = std::fs::read_to_string(&zshrc).unwrap_or_default();
+    let marker = format!("# claude-switch: {} profile", profile_name);
+
+    if existing.contains(&marker) {
+        let overwrite = Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!("Alias for '{}' already exists in ~/.zshrc. Overwrite?", profile_name))
+            .default(true)
+            .interact()
+            .map_err(|e| e.to_string())?;
+
+        if !overwrite {
+            return Ok(());
+        }
+
+        let cleaned = remove_alias_block(&existing, &marker);
+        std::fs::write(&zshrc, cleaned)
+            .map_err(|e| format!("Failed to update ~/.zshrc: {}", e))?;
+    }
+
+    // Append new alias block
+    let mut content = std::fs::read_to_string(&zshrc).unwrap_or_default();
+    content.push_str(&block);
+    std::fs::write(&zshrc, content)
+        .map_err(|e| format!("Failed to write to ~/.zshrc: {}", e))?;
+
+    println!("✅ Added to ~/.zshrc:");
+    println!("   {}", alias_line);
+    println!("   {}-fast  (--dangerously-skip-permissions)", alias_name);
+    println!("   Run: source ~/.zshrc  to apply");
+
+    Ok(())
+}
+
+/// Removes the claude-switch alias block for a profile from the given zshrc content.
+/// Strips the marker comment line + the 2 alias lines that follow it.
+fn remove_alias_block(content: &str, marker: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut skip_until = 0usize;
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            if line.contains(marker) {
+                skip_until = i + 3; // marker + 2 alias lines
+                None
+            } else if i < skip_until {
+                None
+            } else {
+                Some(*line)
+            }
+        })
+        .collect();
+    kept.join("\n").trim_end().to_string() + "\n"
+}
+
+fn remove_alias(profile_name: &str) -> Result<(), String> {
+    let zshrc = dirs::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_string())?
+        .join(".zshrc");
+
+    let existing = std::fs::read_to_string(&zshrc).unwrap_or_default();
+    let marker = format!("# claude-switch: {} profile", profile_name);
+
+    if !existing.contains(&marker) {
+        println!("ℹ️  No alias found for '{}' in ~/.zshrc", profile_name);
+        return Ok(());
+    }
+
+    let confirmed = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(format!("Remove alias for '{}' from ~/.zshrc?", profile_name))
+        .default(true)
+        .interact()
+        .map_err(|e| e.to_string())?;
+
+    if !confirmed {
+        return Ok(());
+    }
+
+    let cleaned = remove_alias_block(&existing, &marker);
+    std::fs::write(&zshrc, cleaned)
+        .map_err(|e| format!("Failed to update ~/.zshrc: {}", e))?;
+
+    println!("✂️  Removed alias for '{}' from ~/.zshrc", profile_name);
+    println!("   Run: source ~/.zshrc  to apply");
 
     Ok(())
 }
