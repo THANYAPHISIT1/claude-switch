@@ -65,9 +65,15 @@ jobs:
         env:
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
+          set -e
+
           VERSION=${GITHUB_REF_NAME#v}
           ARM_SHA=$(cat artifacts/claude-switch-aarch64-apple-darwin.sha256)
           INTEL_SHA=$(cat artifacts/claude-switch-x86_64-apple-darwin.sha256)
+
+          echo "Version: ${VERSION}"
+          echo "ARM SHA256: ${ARM_SHA}"
+          echo "Intel SHA256: ${INTEL_SHA}"
 
           cat > claude-switch.rb << EOF
           class ClaudeSwitch < Formula
@@ -97,13 +103,25 @@ jobs:
           EOF
 
           CONTENT=$(base64 -w 0 claude-switch.rb)
-          FILE_SHA=$(curl -s \
-            -H "Authorization: token ${TAP_GITHUB_TOKEN}" \
-            "https://api.github.com/repos/THANYAPHISIT1/homebrew-tap/contents/claude-switch.rb" \
-            | jq -r '.sha')
 
-          curl -s -X PUT \
-            -H "Authorization: token ${TAP_GITHUB_TOKEN}" \
+          echo "Fetching current file SHA from tap repo..."
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer ${TAP_GITHUB_TOKEN}" \
+            "https://api.github.com/repos/THANYAPHISIT1/homebrew-tap/contents/claude-switch.rb")
+          FILE_SHA=$(echo "${RESPONSE}" | jq -r '.sha')
+          echo "Current file SHA: ${FILE_SHA}"
+
+          echo "Pushing updated formula..."
+          UPDATE_RESPONSE=$(curl -s -X PUT \
+            -H "Authorization: Bearer ${TAP_GITHUB_TOKEN}" \
             -H "Content-Type: application/json" \
             "https://api.github.com/repos/THANYAPHISIT1/homebrew-tap/contents/claude-switch.rb" \
-            -d "{\"message\": \"chore: update claude-switch to v${VERSION}\", \"content\": \"${CONTENT}\", \"sha\": \"${FILE_SHA}\"}"
+            -d "{\"message\": \"chore: update claude-switch to v${VERSION}\", \"content\": \"${CONTENT}\", \"sha\": \"${FILE_SHA}\"}")
+
+          if echo "${UPDATE_RESPONSE}" | jq -e '.commit' > /dev/null 2>&1; then
+            echo "✅ Formula updated to v${VERSION}"
+          else
+            echo "❌ Formula update failed:"
+            echo "${UPDATE_RESPONSE}"
+            exit 1
+          fi
