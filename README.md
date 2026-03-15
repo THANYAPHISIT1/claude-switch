@@ -97,5 +97,5 @@ When you run `claude-switch --<profile>`, the Rust binary performs the following
 
 ## 🗺️ Roadmap
 
-* [ ] Implement automated CI/CD for Homebrew binary distribution.
+* [x] Implement automated CI/CD for Homebrew binary distribution.
 * [ ] Windows Credential Manager / Linux Secret Service support.
