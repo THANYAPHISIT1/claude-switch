@@ -12,23 +12,23 @@ jobs:
   build:
     strategy:
       matrix:
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-13
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.os }}
+        target:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package and compute SHA256
         run: |
           ARTIFACT=claude-switch-${{ matrix.target }}
-          tar czf ${ARTIFACT}.tar.gz -C target/release claude-switch
+          tar czf ${ARTIFACT}.tar.gz -C target/${{ matrix.target }}/release claude-switch
           shasum -a 256 ${ARTIFACT}.tar.gz | awk '{print $1}' > ${ARTIFACT}.sha256
 
       - uses: actions/upload-artifact@v4
