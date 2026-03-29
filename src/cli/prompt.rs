@@ -2,7 +2,6 @@ use std::process::Command;
 
 use console::Term;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
-
 use crate::cli::parser::CliArgs;
 use crate::security::Profile;
 use crate::utils::fs;
@@ -41,8 +40,11 @@ fn show_main_picker(profiles: &[String]) -> Result<MenuAction, String> {
     let mut items: Vec<String> = profiles
         .iter()
         .map(|name| {
-            let token_path = home.join(format!(".claude-{}/keychain_token.txt", name));
-            let (indicator, status) = if token_path.exists() {
+            let config_dir = home.join(format!(".claude-{}", name));
+            let has_session = std::fs::read_dir(&config_dir)
+                .map(|mut d| d.next().is_some())
+                .unwrap_or(false);
+            let (indicator, status) = if has_session {
                 ("●", "🔑 saved")
             } else {
                 ("○", "✨ new ")
@@ -89,6 +91,18 @@ fn handle_new_profile() -> Result<(), String> {
     fs::ensure_dir(&profile.config_dir)?;
     println!("✅ Created profile '{}' at {}", name, profile.config_dir.display());
 
+    #[cfg(feature = "usage")]
+    {
+        let setup = Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Set up statusline session usage for this profile?")
+            .default(false)
+            .interact()
+            .map_err(|e| e.to_string())?;
+        if setup {
+            setup_statusline(&name)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -119,18 +133,23 @@ fn handle_manage(profiles: &[String]) -> Result<(), String> {
 fn manage_single_profile(name: &str) -> Result<(), String> {
     let profile = Profile::new(name)?;
 
-    let items = [
+    let mut items: Vec<&str> = vec![
         "  🗑  Delete profile",
         "  📂  Reveal in Finder",
         "  🔗  Set alias",
         "  ✂️   Remove alias",
-        "  ← Back",
     ];
+    #[cfg(feature = "usage")]
+    let statusline_idx = items.len();
+    #[cfg(feature = "usage")]
+    items.push("  📊  Setup statusline");
+    let back_idx = items.len();
+    items.push("  ← Back");
 
     let selection = Select::with_theme(&ColorfulTheme::default())
         .with_prompt(format!("⚙  Manage: {}", name))
         .items(&items)
-        .default(4)
+        .default(back_idx)
         .interact_on_opt(&Term::stderr())
         .map_err(|e| e.to_string())?;
 
@@ -139,6 +158,8 @@ fn manage_single_profile(name: &str) -> Result<(), String> {
         Some(1) => reveal_in_finder(&profile)?,
         Some(2) => set_alias(name)?,
         Some(3) => remove_alias(name)?,
+        #[cfg(feature = "usage")]
+        Some(i) if i == statusline_idx => setup_statusline(name)?,
         _ => {}
     }
 
@@ -286,5 +307,84 @@ fn reveal_in_finder(profile: &Profile) -> Result<(), String> {
         .arg(&profile.config_dir)
         .status()
         .map_err(|e| format!("Failed to open Finder: {}", e))?;
+    Ok(())
+}
+
+#[cfg(feature = "usage")]
+fn setup_statusline(profile_name: &str) -> Result<(), String> {
+    println!("\n📊 Statusline Setup for '{}'", profile_name);
+    println!("   You'll need two cookies from claude.ai:");
+    println!("   1. Open Chrome DevTools → Application → Cookies → https://claude.ai");
+    println!("   2. Copy the values of 'sessionKey' and 'cf_clearance'");
+    println!();
+
+    let session_key: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("sessionKey")
+        .validate_with(|input: &String| -> Result<(), String> {
+            if input.starts_with("sk-") {
+                Ok(())
+            } else {
+                Err("sessionKey must start with 'sk-'".to_string())
+            }
+        })
+        .interact_text()
+        .map_err(|e| e.to_string())?;
+
+    let cf_clearance: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("cf_clearance")
+        .interact_text()
+        .map_err(|e| e.to_string())?;
+
+    let profile = Profile::new(profile_name)?;
+    let profile_dir = &profile.config_dir;
+
+    let cookie_path = crate::commands::usage::cookie_file(profile_name);
+    let cookie_json = serde_json::json!({
+        "sessionKey": session_key,
+        "cf_clearance": cf_clearance,
+    });
+    std::fs::write(&cookie_path, serde_json::to_string_pretty(&cookie_json)
+            .map_err(|e| format!("Failed to serialize cookies: {}", e))?)
+        .map_err(|e| format!("Failed to write cookies: {}", e))?;
+
+    let settings_path = profile_dir.join("settings.json");
+    let mut settings: serde_json::Value = std::fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let script_path = home.join(".claude").join("statusline-profile.sh");
+    let command = format!("sh {} {}", script_path.display(), profile_name);
+    settings["statusLine"] = serde_json::json!({
+        "type": "command",
+        "command": command,
+    });
+
+    std::fs::write(&settings_path, serde_json::to_string_pretty(&settings)
+            .map_err(|e| format!("Failed to serialize settings: {}", e))?)
+        .map_err(|e| format!("Failed to write settings.json: {}", e))?;
+
+    let should_write = if script_path.exists() {
+        Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Update existing statusline script?")
+            .default(false)
+            .interact()
+            .map_err(|e| e.to_string())?
+    } else {
+        true
+    };
+
+    if should_write {
+        std::fs::create_dir_all(script_path.parent().unwrap())
+            .map_err(|e| format!("Failed to create ~/.claude: {}", e))?;
+        std::fs::write(&script_path, include_str!("../../assets/statusline-profile.sh"))
+            .map_err(|e| format!("Failed to write statusline script: {}", e))?;
+        println!("   Wrote {}", script_path.display());
+    }
+
+    println!("✅ Statusline configured for '{}'", profile_name);
+    println!("   Reload Claude Code to see the status bar.");
+
     Ok(())
 }

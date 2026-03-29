@@ -19,5 +19,10 @@ fn run() -> Result<i32, String> {
             run_switch(args)
         }
         CliMode::Direct(args) => run_switch(args),
+        #[cfg(feature = "usage")]
+        CliMode::Usage(args) => {
+            claude_switch::commands::usage::run_usage(&args.profile);
+            Ok(0)
+        }
     }
 }
