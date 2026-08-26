@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::security::token::DEFAULT_PROFILE;
+
 pub fn ensure_dir(path: &PathBuf) -> Result<(), String> {
     if !path.exists() {
         fs::create_dir_all(path)
@@ -22,6 +24,8 @@ pub fn write_token_file(path: &PathBuf, token: &str) -> Result<(), String> {
 }
 
 /// Scans the home directory for ~/.claude-* profile directories and returns profile names.
+/// `~/.claude` is Claude Code's own config dir — it is surfaced first as the reserved
+/// `default` profile rather than being scanned like the suffixed ones.
 pub fn discover_profile_names() -> Result<Vec<String>, String> {
     let home = dirs::home_dir()
         .ok_or_else(|| "Could not determine home directory".to_string())?;
@@ -40,8 +44,15 @@ pub fn discover_profile_names() -> Result<Vec<String>, String> {
                 None
             }
         })
+        // `default` is reserved for ~/.claude, so a stray ~/.claude-default is unreachable.
+        .filter(|name| name != DEFAULT_PROFILE)
         .collect();
 
     profiles.sort();
+
+    if home.join(".claude").is_dir() {
+        profiles.insert(0, DEFAULT_PROFILE.to_string());
+    }
+
     Ok(profiles)
 }

@@ -66,7 +66,7 @@ async fn fetch_usage(session_key: &str, cf_clearance: &str) -> Option<(u32, Stri
         let Some(utilization) = usage["five_hour"]["utilization"].as_f64() else { continue };
         let Some(resets_at) = usage["five_hour"]["resets_at"].as_str() else { continue };
 
-        let pct = (utilization * 100.0).round() as u32;
+        let pct = utilization.round() as u32;
         let label = reset_time_label(resets_at);
 
         return Some((pct, label));
@@ -131,8 +131,8 @@ fn cache_file(profile: &str) -> PathBuf {
 }
 
 pub(crate) fn cookie_file(profile: &str) -> PathBuf {
-    dirs::home_dir()
+    crate::security::Profile::new(profile)
+        .map(|p| p.config_dir)
         .unwrap_or_default()
-        .join(format!(".claude-{}", profile))
         .join(".claude-cookies.json")
 }

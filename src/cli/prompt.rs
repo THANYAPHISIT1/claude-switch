@@ -3,6 +3,7 @@ use std::process::Command;
 use console::Term;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use crate::cli::parser::CliArgs;
+use crate::security::token::DEFAULT_PROFILE;
 use crate::security::Profile;
 use crate::utils::fs;
 
@@ -35,23 +36,25 @@ enum MenuAction {
 }
 
 fn show_main_picker(profiles: &[String]) -> Result<MenuAction, String> {
-    let home = dirs::home_dir().unwrap_or_default();
-
-    let mut items: Vec<String> = profiles
-        .iter()
-        .map(|name| {
-            let config_dir = home.join(format!(".claude-{}", name));
-            let has_session = std::fs::read_dir(&config_dir)
-                .map(|mut d| d.next().is_some())
-                .unwrap_or(false);
-            let (indicator, status) = if has_session {
-                ("●", "🔑 saved")
-            } else {
-                ("○", "✨ new ")
-            };
-            format!("  {} {:<15} [{:<10}]  ~/.claude-{}", indicator, name, status, name)
-        })
-        .collect();
+    let mut items: Vec<String> = Vec::with_capacity(profiles.len());
+    for name in profiles {
+        let profile = Profile::new(name)?;
+        let has_session = std::fs::read_dir(&profile.config_dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false);
+        let (indicator, status) = if has_session {
+            ("●", "🔑 saved")
+        } else {
+            ("○", "✨ new ")
+        };
+        items.push(format!(
+            "  {} {:<15} [{:<10}]  {}",
+            indicator,
+            name,
+            status,
+            profile.display_path()
+        ));
+    }
 
     let separator_idx = items.len();
     items.push("  ─────────────────────────────────────────────".to_string());
@@ -84,6 +87,14 @@ fn handle_new_profile() -> Result<(), String> {
 
     let name = name.trim().to_string();
     if name.is_empty() {
+        return Ok(());
+    }
+
+    if name == DEFAULT_PROFILE {
+        eprintln!(
+            "ℹ️  '{}' is reserved for ~/.claude and already exists as a profile.",
+            DEFAULT_PROFILE
+        );
         return Ok(());
     }
 
@@ -154,6 +165,14 @@ fn manage_single_profile(name: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     match selection {
+        // The default profile is Claude Code's own ~/.claude: never delete it, and it
+        // needs no alias — plain `claude` already runs it.
+        Some(0) if profile.is_default => {
+            eprintln!("ℹ️  The default profile (~/.claude) cannot be deleted from here.")
+        }
+        Some(2) | Some(3) if profile.is_default => {
+            eprintln!("ℹ️  The default profile needs no alias — just run `claude`.")
+        }
         Some(0) => delete_profile(&profile, name)?,
         Some(1) => reveal_in_finder(&profile)?,
         Some(2) => set_alias(name)?,
