@@ -11,18 +11,6 @@ pub fn ensure_dir(path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-pub fn read_token_file(path: &PathBuf) -> Option<String> {
-    if path.exists() {
-        fs::read_to_string(path).ok()
-    } else {
-        None
-    }
-}
-
-pub fn write_token_file(path: &PathBuf, token: &str) -> Result<(), String> {
-    fs::write(path, token).map_err(|e| format!("Failed to write token file: {}", e))
-}
-
 /// Scans the home directory for ~/.claude-* profile directories and returns profile names.
 /// `~/.claude` is Claude Code's own config dir — it is surfaced first as the reserved
 /// `default` profile rather than being scanned like the suffixed ones.

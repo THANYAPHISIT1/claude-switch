@@ -1,4 +1,4 @@
-use claude_switch::cli::parser::{parse_args, CliMode};
+use claude_switch::cli::parser::{self, parse_args, CliMode};
 use claude_switch::cli::prompt;
 use claude_switch::commands::switch::run_switch;
 
@@ -19,6 +19,14 @@ fn run() -> Result<i32, String> {
             run_switch(args)
         }
         CliMode::Direct(args) => run_switch(args),
+        CliMode::Version => {
+            parser::print_version();
+            Ok(0)
+        }
+        CliMode::Help => {
+            parser::print_help();
+            Ok(0)
+        }
         #[cfg(feature = "usage")]
         CliMode::Usage(args) => {
             claude_switch::commands::usage::run_usage(&args.profile);

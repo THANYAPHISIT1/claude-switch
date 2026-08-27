@@ -40,6 +40,7 @@ The binary is split into a **library crate** (`src/lib.rs`) and a thin **binary 
 
 ```
 main() → parse_args()
+           ├── Version/Help → parser::print_version() / print_help()
            ├── Interactive → prompt::run_interactive_mode() → CliArgs
            └── Direct(CliArgs) ─────────────────────────────────┐
                                                                  ▼
@@ -49,6 +50,8 @@ main() → parse_args()
 ```
 
 `runner::run_claude()` spawns the `claude` process with `CLAUDE_CONFIG_DIR=~/.claude-<profile>` — this is what isolates histories, MCP servers, settings, and keychain tokens per profile.
+
+The reserved profile `default` is the exception: it maps to Claude Code's own `~/.claude`, and `run_claude()` **unsets** `CLAUDE_CONFIG_DIR` (rather than setting it) so the child behaves identically to running `claude` bare. Setting it explicitly would derive a different keychain entry, and an inherited value from the parent shell would silently override the profile. Because of this, `default` needs no alias and cannot be deleted from the Manage menu.
 
 ### Keychain — how profile isolation works
 
@@ -61,6 +64,8 @@ Claude Code derives its keychain service name from `CLAUDE_CONFIG_DIR`:
 Example:
 - `~/.claude-work`     → `"Claude Code-credentials-XXXXXXXX"`
 - `~/.claude-personal` → `"Claude Code-credentials-YYYYYYYY"`
+
+The hash is taken over the literal `CLAUDE_CONFIG_DIR` string — symlinks are **not** resolved, so pointing it at a symlink yields a different (empty) keychain entry. The default `~/.claude` uses the unsuffixed `"Claude Code-credentials"` when `CLAUDE_CONFIG_DIR` is unset.
 
 Because each profile has a unique `CLAUDE_CONFIG_DIR`, Claude Code automatically reads and writes a **separate keychain entry per profile**. No manual keychain manipulation is needed — do not add restore/backup logic that deletes and recreates keychain entries, as it breaks the ACL that grants Claude Code access to the entry.
 
