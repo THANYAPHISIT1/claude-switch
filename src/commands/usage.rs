@@ -136,3 +136,11 @@ pub(crate) fn cookie_file(profile: &str) -> PathBuf {
         .unwrap_or_default()
         .join(".claude-cookies.json")
 }
+
+/// Marker written when the user declines statusline setup, so we never ask again.
+pub(crate) fn statusline_declined_file(profile: &str) -> PathBuf {
+    crate::security::Profile::new(profile)
+        .map(|p| p.config_dir)
+        .unwrap_or_default()
+        .join(".claude-switch-no-statusline")
+}

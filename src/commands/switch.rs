@@ -8,6 +8,9 @@ pub fn run_switch(args: CliArgs) -> Result<i32, String> {
     fs::ensure_dir(&profile.config_dir)?;
     logger::info(&format!("Profile: {}", profile.name));
 
+    #[cfg(feature = "usage")]
+    crate::cli::prompt::offer_statusline_setup(&profile)?;
+
     let exit_code = runner::run_claude(&profile, &args.claude_args)?;
 
     Ok(exit_code)

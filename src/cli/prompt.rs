@@ -103,17 +103,46 @@ fn handle_new_profile() -> Result<(), String> {
     println!("✅ Created profile '{}' at {}", name, profile.config_dir.display());
 
     #[cfg(feature = "usage")]
-    {
-        let setup = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt("Set up statusline session usage for this profile?")
-            .default(false)
-            .interact()
-            .map_err(|e| e.to_string())?;
-        if setup {
-            setup_statusline(&name)?;
-        }
-    }
+    ask_statusline_setup(&name)?;
 
+    Ok(())
+}
+
+/// Offered on every launch until the profile has cookies or the user declined once.
+#[cfg(feature = "usage")]
+pub fn offer_statusline_setup(profile: &Profile) -> Result<(), String> {
+    use std::io::IsTerminal;
+
+    let is_tty = std::io::stdin().is_terminal() && Term::stderr().is_term();
+    let has_cookies = crate::commands::usage::cookie_file(&profile.name).exists();
+    let declined = crate::commands::usage::statusline_declined_file(&profile.name).exists();
+
+    if should_offer_statusline(profile.is_default, is_tty, has_cookies, declined) {
+        ask_statusline_setup(&profile.name)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "usage")]
+fn should_offer_statusline(is_default: bool, is_tty: bool, has_cookies: bool, declined: bool) -> bool {
+    !is_default && is_tty && !has_cookies && !declined
+}
+
+#[cfg(feature = "usage")]
+fn ask_statusline_setup(profile_name: &str) -> Result<(), String> {
+    let setup = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Set up statusline session usage for this profile?")
+        .default(false)
+        .interact()
+        .map_err(|e| e.to_string())?;
+    if setup {
+        setup_statusline(profile_name)?;
+    } else {
+        let marker = crate::commands::usage::statusline_declined_file(profile_name);
+        std::fs::write(&marker, "")
+            .map_err(|e| format!("Failed to write {}: {}", marker.display(), e))?;
+        println!("   Won't ask again. Use Manage → Setup statusline to set it up later.");
+    }
     Ok(())
 }
 
@@ -406,4 +435,34 @@ fn setup_statusline(profile_name: &str) -> Result<(), String> {
     println!("   Reload Claude Code to see the status bar.");
 
     Ok(())
+}
+
+#[cfg(all(test, feature = "usage"))]
+mod tests {
+    use super::should_offer_statusline;
+
+    #[test]
+    fn offers_when_named_tty_without_cookies_or_decline() {
+        assert!(should_offer_statusline(false, true, false, false));
+    }
+
+    #[test]
+    fn never_offers_for_default_profile() {
+        assert!(!should_offer_statusline(true, true, false, false));
+    }
+
+    #[test]
+    fn never_offers_without_tty() {
+        assert!(!should_offer_statusline(false, false, false, false));
+    }
+
+    #[test]
+    fn stops_offering_once_cookies_exist() {
+        assert!(!should_offer_statusline(false, true, true, false));
+    }
+
+    #[test]
+    fn stops_offering_once_declined() {
+        assert!(!should_offer_statusline(false, true, false, true));
+    }
 }
