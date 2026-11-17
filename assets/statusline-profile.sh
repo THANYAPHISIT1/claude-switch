@@ -50,6 +50,7 @@ fi
 context_part=""
 session_info=$(claude-switch usage "$PROFILE" 2>/dev/null)
 if [ -n "$session_info" ]; then
+  session_info=$(printf '%s' "$session_info" | sed "s/session:/${yellow}session:${cyan}/; s/resets/${yellow}resets${cyan}/")
   context_part=" ${cyan}${session_info}${reset}"
 fi
 
@@ -60,4 +61,4 @@ printf "%s%s%s%s%s%s  %s\n" \
   "$git_part" \
   "$context_part" \
   "" \
-  "${cyan}${model}${reset}"
+  "${blue}${model}${reset}"
